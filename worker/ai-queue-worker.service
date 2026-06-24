@@ -1,0 +1,20 @@
+[Unit]
+Description=AI Queue Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ai-worker
+WorkingDirectory=/opt/ai-queue-worker
+EnvironmentFile=/etc/ai-queue-worker/env
+ExecStart=/opt/ai-queue-worker/venv/bin/python worker.py
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=60
+StartLimitBurst=5
+TimeoutStopSec=300
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target

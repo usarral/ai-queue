@@ -1,0 +1,82 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ai_queue
+      POSTGRES_USER: ai_queue
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai_queue"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://ai_queue:${POSTGRES_PASSWORD}@postgres/ai_queue
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      API_KEY: ${API_KEY}
+      AI_SERVER_IP: ${AI_SERVER_IP}
+      AI_SERVER_MAC: ${AI_SERVER_MAC}
+      BROADCAST_IP: ${BROADCAST_IP:-255.255.255.255}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  wol:
+    build: ./wol
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      DATABASE_URL: postgresql://ai_queue:${POSTGRES_PASSWORD}@postgres/ai_queue
+      AI_SERVER_IP: ${AI_SERVER_IP}
+      AI_SERVER_MAC: ${AI_SERVER_MAC}
+      BROADCAST_IP: ${BROADCAST_IP:-255.255.255.255}
+      CHECK_INTERVAL: "120"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ui:
+    build: ./ui
+    restart: unless-stopped
+    environment:
+      PUBLIC_API_URL: ""
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [api, ui]
+
+volumes:
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:

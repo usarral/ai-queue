@@ -1,0 +1,21 @@
+# Sustituye "ai-queue.example.com" por tu dominio real.
+# Caddy obtiene el certificado TLS automáticamente via Let's Encrypt.
+# Si solo quieres acceso local sin dominio, reemplaza el bloque por:
+#   :80 { ... }
+
+ai-queue.example.com {
+    # Proxying de la API
+    handle /api/* {
+        reverse_proxy api:8000
+    }
+
+    # Health check de la API
+    handle /healthz {
+        reverse_proxy api:8000
+    }
+
+    # Todo lo demás va a la UI estática
+    handle {
+        reverse_proxy ui:3000
+    }
+}

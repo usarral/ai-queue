@@ -1,0 +1,419 @@
+---
+// API URL is relative — Caddy proxies /api to the FastAPI container
+const API = "";
+---
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Queue</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f0f13;
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #1a1a2e;
+      border-bottom: 1px solid #2d2d44;
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 { font-size: 1.25rem; font-weight: 600; color: #7eb8f7; }
+
+    .ai-status {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      color: #94a3b8;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #475569;
+    }
+    .dot.online { background: #22c55e; }
+    .dot.offline { background: #ef4444; }
+
+    main { max-width: 1100px; margin: 0 auto; padding: 2rem; }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    .stat-card {
+      background: #1a1a2e;
+      border: 1px solid #2d2d44;
+      border-radius: 10px;
+      padding: 1rem 1.25rem;
+      text-align: center;
+    }
+    .stat-card .label { font-size: 0.75rem; color: #64748b; text-transform: uppercase; letter-spacing: .05em; }
+    .stat-card .value { font-size: 2rem; font-weight: 700; margin-top: 0.25rem; }
+    .stat-card.pending   .value { color: #f59e0b; }
+    .stat-card.processing .value { color: #3b82f6; }
+    .stat-card.completed .value { color: #22c55e; }
+    .stat-card.failed    .value { color: #ef4444; }
+    .stat-card.cancelled .value { color: #64748b; }
+
+    .section { margin-bottom: 2rem; }
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+    .section-header h2 { font-size: 1rem; font-weight: 600; color: #94a3b8; }
+
+    button {
+      background: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 0.4rem 0.9rem;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    button:hover { background: #2563eb; }
+    button.danger { background: #dc2626; }
+    button.danger:hover { background: #b91c1c; }
+    button.secondary { background: #334155; }
+    button.secondary:hover { background: #475569; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.65rem 0.75rem;
+      border-bottom: 1px solid #1e293b;
+    }
+    th { color: #64748b; font-weight: 500; font-size: 0.75rem; text-transform: uppercase; }
+    tr:hover td { background: #1a1a2e; }
+
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.55rem;
+      border-radius: 99px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge.pending    { background: #78350f; color: #fbbf24; }
+    .badge.processing { background: #1e3a5f; color: #60a5fa; }
+    .badge.completed  { background: #14532d; color: #4ade80; }
+    .badge.failed     { background: #450a0a; color: #f87171; }
+    .badge.cancelled  { background: #1e293b; color: #64748b; }
+
+    .modal-backdrop {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.6);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      background: #1a1a2e;
+      border: 1px solid #2d2d44;
+      border-radius: 12px;
+      padding: 1.5rem;
+      width: 100%;
+      max-width: 520px;
+    }
+    .modal h3 { margin-bottom: 1rem; font-size: 1rem; }
+    .field { margin-bottom: 1rem; }
+    .field label { display: block; font-size: 0.8rem; color: #94a3b8; margin-bottom: 0.35rem; }
+    .field select, .field input, .field textarea {
+      width: 100%;
+      background: #0f0f13;
+      border: 1px solid #2d2d44;
+      border-radius: 6px;
+      padding: 0.5rem 0.75rem;
+      color: #e2e8f0;
+      font-size: 0.875rem;
+    }
+    .field textarea { resize: vertical; min-height: 100px; font-family: monospace; }
+    .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
+
+    .empty { text-align: center; padding: 3rem; color: #475569; }
+
+    .workers-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 0.75rem;
+    }
+    .worker-card {
+      background: #1a1a2e;
+      border: 1px solid #2d2d44;
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .worker-card .name { font-weight: 500; font-size: 0.9rem; }
+    .worker-card .caps { font-size: 0.75rem; color: #64748b; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AI Queue</h1>
+    <div class="ai-status">
+      <span class="dot" id="ai-dot"></span>
+      <span id="ai-label">comprobando...</span>
+      <button class="secondary" onclick="wakeup()" style="margin-left:.5rem">Despertar</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Stats -->
+    <div class="stats">
+      <div class="stat-card pending">
+        <div class="label">Pendientes</div>
+        <div class="value" id="s-pending">-</div>
+      </div>
+      <div class="stat-card processing">
+        <div class="label">En proceso</div>
+        <div class="value" id="s-processing">-</div>
+      </div>
+      <div class="stat-card completed">
+        <div class="label">Completadas</div>
+        <div class="value" id="s-completed">-</div>
+      </div>
+      <div class="stat-card failed">
+        <div class="label">Fallidas</div>
+        <div class="value" id="s-failed">-</div>
+      </div>
+      <div class="stat-card cancelled">
+        <div class="label">Canceladas</div>
+        <div class="value" id="s-cancelled">-</div>
+      </div>
+    </div>
+
+    <!-- Tasks -->
+    <div class="section">
+      <div class="section-header">
+        <h2>Tareas</h2>
+        <div style="display:flex;gap:.5rem;align-items:center">
+          <select id="filter-status" onchange="loadTasks()" style="background:#1a1a2e;border:1px solid #2d2d44;border-radius:6px;padding:.35rem .6rem;color:#e2e8f0;font-size:.85rem">
+            <option value="">Todas</option>
+            <option value="pending">Pendientes</option>
+            <option value="processing">En proceso</option>
+            <option value="completed">Completadas</option>
+            <option value="failed">Fallidas</option>
+          </select>
+          <button onclick="openModal()">+ Nueva tarea</button>
+          <button class="secondary" onclick="loadAll()">↺ Actualizar</button>
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Tipo</th>
+            <th>Estado</th>
+            <th>Prioridad</th>
+            <th>Creada</th>
+            <th>Worker</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tasks-body">
+          <tr><td colspan="7" class="empty">Cargando...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Workers -->
+    <div class="section">
+      <div class="section-header"><h2>Workers</h2></div>
+      <div class="workers-grid" id="workers-grid">
+        <div style="color:#475569;font-size:.85rem">Cargando...</div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Modal nueva tarea -->
+  <div class="modal-backdrop" id="modal">
+    <div class="modal">
+      <h3>Nueva tarea</h3>
+      <div class="field">
+        <label>Tipo</label>
+        <select id="task-type" onchange="updatePayloadHint()">
+          <option value="ollama_prompt">ollama_prompt</option>
+          <option value="shell_command">shell_command</option>
+          <option value="whisper_transcription">whisper_transcription</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Prioridad (1=alta, 10=baja)</label>
+        <input type="number" id="task-priority" value="5" min="1" max="10" />
+      </div>
+      <div class="field">
+        <label>Payload (JSON)</label>
+        <textarea id="task-payload"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary" onclick="closeModal()">Cancelar</button>
+        <button onclick="createTask()">Crear</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API = "";
+    const HEADERS = { "Content-Type": "application/json", "X-API-Key": "" };
+
+    const PAYLOAD_HINTS = {
+      ollama_prompt: JSON.stringify({ model: "llama3.2", prompt: "Explica qué es Redis Streams en 2 frases." }, null, 2),
+      shell_command: JSON.stringify({ command: "echo hola mundo", timeout: 60 }, null, 2),
+      whisper_transcription: JSON.stringify({ file_path: "/data/audio.mp3", language: "es", model: "base" }, null, 2),
+    };
+
+    function updatePayloadHint() {
+      const t = document.getElementById("task-type").value;
+      document.getElementById("task-payload").value = PAYLOAD_HINTS[t] || "{}";
+    }
+
+    function openModal() {
+      updatePayloadHint();
+      document.getElementById("modal").classList.add("open");
+    }
+    function closeModal() { document.getElementById("modal").classList.remove("open"); }
+
+    async function api(path, opts = {}) {
+      const r = await fetch(API + "/api" + path, { ...opts, headers: { ...HEADERS, ...opts.headers } });
+      if (!r.ok) throw new Error(await r.text());
+      return r.status === 204 ? null : r.json();
+    }
+
+    async function loadStats() {
+      try {
+        const s = await api("/stats");
+        document.getElementById("s-pending").textContent    = s.pending;
+        document.getElementById("s-processing").textContent = s.processing;
+        document.getElementById("s-completed").textContent  = s.completed;
+        document.getElementById("s-failed").textContent     = s.failed;
+        document.getElementById("s-cancelled").textContent  = s.cancelled;
+      } catch(e) { console.error(e); }
+    }
+
+    async function loadAiStatus() {
+      try {
+        const s = await api("/system/ai-status");
+        const dot = document.getElementById("ai-dot");
+        const lbl = document.getElementById("ai-label");
+        if (s.online === null) { lbl.textContent = "sin configurar"; return; }
+        dot.className = "dot " + (s.online ? "online" : "offline");
+        lbl.textContent = s.online ? "AI server online" : "AI server offline";
+      } catch(e) {}
+    }
+
+    async function wakeup() {
+      try {
+        const r = await api("/system/wakeup", { method: "POST" });
+        alert(r.sent ? "Paquete WoL enviado" : "No configurado: " + r.reason);
+      } catch(e) { alert("Error: " + e.message); }
+    }
+
+    function fmt(iso) {
+      if (!iso) return "-";
+      const d = new Date(iso);
+      return d.toLocaleDateString("es") + " " + d.toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" });
+    }
+
+    async function loadTasks() {
+      const status = document.getElementById("filter-status").value;
+      try {
+        const data = await api("/tasks" + (status ? "?status=" + status : ""));
+        const tbody = document.getElementById("tasks-body");
+        if (!data.items.length) {
+          tbody.innerHTML = `<tr><td colspan="7" class="empty">No hay tareas</td></tr>`;
+          return;
+        }
+        tbody.innerHTML = data.items.map(t => `
+          <tr>
+            <td style="font-family:monospace;font-size:.75rem;color:#64748b">${t.id.slice(0,8)}…</td>
+            <td>${t.type}</td>
+            <td><span class="badge ${t.status}">${t.status}</span></td>
+            <td>${t.priority}</td>
+            <td>${fmt(t.created_at)}</td>
+            <td style="font-size:.8rem;color:#64748b">${t.worker_id || "-"}</td>
+            <td>
+              ${t.status === "pending"
+                ? `<button class="danger" onclick="cancelTask('${t.id}')">Cancelar</button>`
+                : ""}
+            </td>
+          </tr>
+        `).join("");
+      } catch(e) { console.error(e); }
+    }
+
+    async function cancelTask(id) {
+      if (!confirm("¿Cancelar tarea " + id.slice(0,8) + "?")) return;
+      await api("/tasks/" + id, { method: "DELETE" });
+      loadAll();
+    }
+
+    async function createTask() {
+      const type = document.getElementById("task-type").value;
+      const priority = parseInt(document.getElementById("task-priority").value);
+      let payload;
+      try {
+        payload = JSON.parse(document.getElementById("task-payload").value);
+      } catch(e) {
+        alert("El payload no es JSON válido");
+        return;
+      }
+      try {
+        await api("/tasks", { method: "POST", body: JSON.stringify({ type, priority, input_payload: payload }) });
+        closeModal();
+        loadAll();
+      } catch(e) { alert("Error: " + e.message); }
+    }
+
+    async function loadWorkers() {
+      try {
+        const ws = await api("/workers");
+        const grid = document.getElementById("workers-grid");
+        if (!ws.length) {
+          grid.innerHTML = `<div style="color:#475569;font-size:.85rem">No hay workers registrados</div>`;
+          return;
+        }
+        grid.innerHTML = ws.map(w => `
+          <div class="worker-card">
+            <span class="dot ${w.online ? "online" : "offline"}"></span>
+            <div>
+              <div class="name">${w.hostname || w.id}</div>
+              <div class="caps">${(w.capabilities || []).join(", ") || "sin capabilities"}</div>
+            </div>
+          </div>
+        `).join("");
+      } catch(e) { console.error(e); }
+    }
+
+    async function loadAll() {
+      await Promise.all([loadStats(), loadTasks(), loadWorkers(), loadAiStatus()]);
+    }
+
+    // Inicial
+    loadAll();
+    // Auto-refresh cada 10s
+    setInterval(loadAll, 10_000);
+  </script>
+</body>
+</html>
